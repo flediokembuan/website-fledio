@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Robot Compiler IDE - BNF & Non-Terminals</title>
+    <style>
+        :root {
+            --bg: #0d1117; --panel: #161b22; --accent: #58a6ff;
+            --success: #3fb950; --error: #f85149; --text: #c9d1d9;
+            --border: #30363d; --nt-color: #ff79c6; /* Pink untuk Non-Terminal */
+            --t-color: #8be9fd;  /* Cyan untuk Terminal */
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Fira Code', monospace; }
+        body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        header { background: #21262d; padding: 10px 20px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); }
+
+        .container { display: grid; grid-template-columns: 300px 1fr 300px; gap: 10px; padding: 10px; flex: 1; min-height: 0; }
+
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+        .card-header { background: rgba(255,255,255,0.05); padding: 8px 12px; font-size: 11px; font-weight: bold; color: #8b949e; border-bottom: 1px solid var(--border); }
+
+        /* EDITOR & OUTPUT */
+        textarea { flex: 1; background: transparent; color: var(--success); border: none; padding: 15px; font-size: 13px; outline: none; resize: none; }
+        .output-box { flex: 1; padding: 15px; font-size: 12px; background: #010409; overflow-y: auto; white-space: pre-wrap; }
+
+        /* BNF LIST STYLING */
+        .bnf-item { padding: 5px 10px; font-size: 11px; border-bottom: 1px solid #222; }
+        .bnf-nt { color: var(--nt-color); font-weight: bold; }
+
+        /* TREE STYLING */
+        #tree-display { flex: 1; padding: 15px; overflow-y: auto; background: #010409; font-size: 12px; }
+        .tree-node { margin-left: 18px; border-left: 1px dashed #444; padding-left: 10px; margin-top: 4px; }
+        .label-nt { color: var(--nt-color); font-size: 10px; text-transform: uppercase; font-weight: bold; display: block; }
+        .label-t { color: var(--t-color); font-weight: normal; }
+
+        /* SIMULATION */
+        #canvas-wrapper { height: 250px; background: #000; border-bottom: 1px solid var(--border); }
+        canvas { width: 100%; height: 100%; }
+
+        .btn-run { background: var(--success); color: white; border: none; padding: 12px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="color: var(--accent)">COMPILER ILLUSTRATOR v3.0</div>
+    <div style="font-size: 12px;">FLEDIO JONATHAN KEMBUAN - PARALLEL AUTOMATA</div>
+</header>
+
+<div class="container">
+    <div class="card">
+        <div class="card-header">DEFINISI BNF (NON-TERMINALS)</div>
+        <div style="background: #0d1117;">
+            <div class="bnf-item"><span class="bnf-nt">&lt;program&gt;</span> ::= &lt;stmt&gt;+</div>
+            <div class="bnf-item"><span class="bnf-nt">&lt;stmt&gt;</span> ::= &lt;selection&gt; | &lt;action&gt;</div>
+            <div class="bnf-item"><span class="bnf-nt">&lt;selection&gt;</span> ::= "pilih" &lt;target&gt; ";"</div>
+            <div class="bnf-item"><span class="bnf-nt">&lt;action&gt;</span> ::= &lt;move&gt; &lt;val&gt; ";"</div>
+            <div class="bnf-item"><span class="bnf-nt">&lt;target&gt;</span> ::= "biru" | "merah" | "semua"</div>
+            <div class="bnf-item"><span class="bnf-nt">&lt;move&gt;</span> ::= "maju" | "belok_kanan" | "belok_kiri"</div>
+        </div>
+        <div class="card-header" style="border-top: 1px solid var(--border)">SOURCE CODE</div>
+        <textarea id="codeInput">pilih biru ;
+maju 100 ;
+belok_kanan ;
+pilih merah ;
+maju 50 ;</textarea>
+        <button class="btn-run" onclick="processCompiler()">COMPILE & ANALYZE</button>
+    </div>
+
+    <div class="card">
+        <div class="card-header">VISUAL PARSE TREE (HIERARCHY)</div>
+        <div id="tree-display"><i>Klik Compile untuk melihat pohon parsing...</i></div>
+        <div class="card-header" style="border-top: 1px solid var(--border)">REAL-TIME SIMULATION</div>
+        <div id="canvas-wrapper"><canvas id="robotCanvas"></canvas></div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">GENERATED PYTHON CODE</div>
+        <div id="python-output" class="output-box" style="color: #d19a66;"># Kode Python hasil translasi...</div>
+        <div class="card-header" style="border-top: 1px solid var(--border)">COMPILER LOG</div>
+        <div id="log-box" class="output-box" style="color: #8b949e; font-size: 10px;">Waiting for input...</div>
+    </div>
+</div>
+
+<script>
+    let bots = {
+        biru: { x: 50, y: 70, angle: 0, color: "#58a6ff", active: false },
+        merah: { x: 50, y: 170, angle: 0, color: "#f85149", active: false }
+    };
+
+    function initCanvas() {
+        const canvas = document.getElementById('robotCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+
+        function draw() {
+            ctx.fillStyle = "#000"; ctx.fillRect(0,0,canvas.width, canvas.height);
+            for(let k in bots) {
+                let b = bots[k];
+                ctx.save();
+                ctx.translate(b.x, b.y);
+                ctx.rotate(b.angle * Math.PI / 180);
+                ctx.strokeStyle = b.color; ctx.lineWidth = 2;
+                if(b.active) { ctx.shadowBlur = 10; ctx.shadowColor = b.color; }
+                ctx.strokeRect(-15, -15, 30, 30);
+                ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(20,0); ctx.stroke();
+                ctx.restore();
+            }
+            requestAnimationFrame(draw);
+        }
+        draw();
+    }
+    initCanvas();
+
+    async function processCompiler() {
+        const input = document.getElementById('codeInput').value;
+        const treeDiv = document.getElementById('tree-display');
+        const pyDiv = document.getElementById('python-output');
+        const logDiv = document.getElementById('log-box');
+
+        treeDiv.innerHTML = "";
+        logDiv.innerHTML = "Starting Lexical Analysis...\n";
+        let pythonCode = "import robot_lib\nrobot = robot_lib.init()\n\n";
+
+        const lines = input.split('\n').filter(l => l.trim() !== "");
+
+        try {
+            // [NON-TERMINAL] Root: <program>
+            let rootNode = createNode(treeDiv, "<program>", "nt");
+
+            for(let line of lines) {
+                let raw = line.trim();
+                if(!raw.endsWith(';')) throw `Syntax Error: ';' missing at "${raw}"`;
+
+                let tokens = raw.replace(';', '').trim().split(/\s+/);
+                
+                // [NON-TERMINAL] Branch: <stmt>
+                let stmtNode = createNode(rootNode, "<stmt>", "nt");
+
+                if(tokens[0] === 'pilih') {
+                    // [NON-TERMINAL] <selection>
+                    let selNode = createNode(stmtNode, "<selection>", "nt");
+                    createNode(selNode, `TERMINAL: "pilih"`, "t");
+                    
+                    // [NON-TERMINAL] <target>
+                    let targetNode = createNode(selNode, "<target>", "nt");
+                    createNode(targetNode, `TERMINAL: "${tokens[1]}"`, "t");
+                    
+                    pythonCode += `robot.select("${tokens[1]}")\n`;
+                    for(let k in bots) bots[k].active = (tokens[1] === 'semua' || k === tokens[1]);
+                } 
+                else if(['maju', 'belok_kanan', 'belok_kiri'].includes(tokens[0])) {
+                    // [NON-TERMINAL] <action>
+                    let actNode = createNode(stmtNode, "<action>", "nt");
+                    
+                    // [NON-TERMINAL] <move>
+                    let moveNode = createNode(actNode, "<move>", "nt");
+                    createNode(moveNode, `TERMINAL: "${tokens[0]}"`, "t");
+                    
+                    let val = tokens[1] || 50;
+                    createNode(actNode, `VALUE: ${val}`, "t");
+                    
+                    pythonCode += `robot.${tokens[0]}(${val})\n`;
+                    await animateMove(tokens[0], parseInt(val));
+                } else {
+                    throw `Lexical Error: Unknown token "${tokens[0]}"`;
+                }
+                createNode(stmtNode, `TERMINAL: ";"`, "t");
+            }
+
+            pyDiv.innerText = pythonCode;
+            logDiv.innerHTML += "Parsing Success. Tree Generated.\nPython Code Emitted.";
+        } catch(e) {
+            treeDiv.innerHTML += `<div style="color:var(--error); padding:10px;">⚠️ ${e}</div>`;
+            logDiv.innerHTML += `ERROR: ${e}`;
+        }
+    }
+
+    function createNode(parent, text, type) {
+        let div = document.createElement('div');
+        div.className = "tree-node";
+        let label = type === 'nt' ? `<span class="label-nt">${text}</span>` : `<span class="label-t">${text}</span>`;
+        div.innerHTML = label;
+        parent.appendChild(div);
+        return div;
+    }
+
+    function animateMove(cmd, val) {
+        return new Promise(r => {
+            setTimeout(() => {
+                for(let k in bots) {
+                    if(!bots[k].active) continue;
+                    if(cmd === 'maju') {
+                        let rad = bots[k].angle * Math.PI / 180;
+                        bots[k].x += Math.cos(rad) * (val/5);
+                        bots[k].y += Math.sin(rad) * (val/5);
+                    }
+                    if(cmd === 'belok_kanan') bots[k].angle += 90;
+                    if(cmd === 'belok_kiri') bots[k].angle -= 90;
+                }
+                r();
+            }, 300);
+        });
+    }
+</script>
+</body>
+</html>
